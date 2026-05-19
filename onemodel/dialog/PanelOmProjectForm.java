@@ -16,6 +16,7 @@ import javax.swing.event.DocumentListener;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
@@ -137,12 +138,27 @@ public class PanelOmProjectForm extends JPanel {
 		JFileChooser chooser = new JFileChooser();
 		chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
 		chooser.setAcceptAllFileFilterUsed(false);
-		if (!targetField.getText().trim().isEmpty()) {
-			chooser.setCurrentDirectory(new File(targetField.getText().trim()));
+		File currentDirectory = resolveExistingChooserDirectory(targetField.getText().trim());
+		if (currentDirectory != null) {
+			chooser.setCurrentDirectory(currentDirectory);
 		}
 		if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
 			targetField.setText(chooser.getSelectedFile().getAbsolutePath());
 		}
+	}
+
+	private File resolveExistingChooserDirectory(String pathText) {
+		Path current = null;
+		if (pathText != null && !pathText.trim().isEmpty()) {
+			current = new File(pathText.trim()).toPath().toAbsolutePath().normalize();
+		}
+		if (current == null) {
+			current = pathSupport.resolveDefaultDataDir();
+		}
+		while (current != null && !Files.isDirectory(current)) {
+			current = current.getParent();
+		}
+		return current == null ? null : current.toFile();
 	}
 
 	private void chooseProjectFolder() {
@@ -213,7 +229,7 @@ public class PanelOmProjectForm extends JPanel {
 
 	private Path buildDefaultProjectFolder(String projectName) {
 		String name = projectName == null || projectName.trim().isEmpty() ? "新建工程" : projectName.trim();
-		return pathSupport.resolveProjectRoot().resolve("data").resolve("projects").resolve(sanitizeFolderName(name));
+		return pathSupport.resolveDefaultDataDir().resolve(sanitizeFolderName(name));
 	}
 
 	private String sanitizeFolderName(String name) {
