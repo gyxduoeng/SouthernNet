@@ -25,10 +25,11 @@ public class DialogOmDrawEquipmentPoint extends SmDialog {
 	private final OneModelMapRepository repository = new OneModelMapRepository();
 	private final OneModelMapBridge mapBridge = new OneModelMapBridge();
 	private final JComboBox<OneModelLayerOption> layerComboBox = new JComboBox<>();
+	private final JComboBox<String> modeComboBox = new JComboBox<>(new String[]{"单点绘制", "连续绘制"});
 
 	public DialogOmDrawEquipmentPoint() {
 		setTitle("绘制设备点");
-		setSize(new Dimension(620, 180));
+		setSize(new Dimension(620, 230));
 		setLayout(new GridBagLayout());
 		loadLayers();
 		buildLayout();
@@ -43,6 +44,8 @@ public class DialogOmDrawEquipmentPoint extends SmDialog {
 		JPanel panel = new JPanel(new GridBagLayout());
 		panel.add(new JLabel("目标设备图层"), new GridBagConstraintsHelper(0, 0).setInsets(0, 0, 8, 6).setAnchor(GridBagConstraints.WEST));
 		panel.add(layerComboBox, new GridBagConstraintsHelper(1, 0).setInsets(0, 0, 8, 0).setWeight(1, 0).setFill(GridBagConstraints.HORIZONTAL));
+		panel.add(new JLabel("绘制模式"), new GridBagConstraintsHelper(0, 1).setInsets(0, 0, 8, 6).setAnchor(GridBagConstraints.WEST));
+		panel.add(modeComboBox, new GridBagConstraintsHelper(1, 1).setInsets(0, 0, 8, 0).setWeight(1, 0).setFill(GridBagConstraints.HORIZONTAL));
 
 		SmButton drawButton = new SmButton("开始绘制");
 		drawButton.addActionListener(e -> beginDraw());
@@ -63,11 +66,15 @@ public class DialogOmDrawEquipmentPoint extends SmDialog {
 			return;
 		}
 		try {
-			if (!mapBridge.beginCreatePoint(option.getDatasetName())) {
+			boolean continuous = "连续绘制".equals(String.valueOf(modeComboBox.getSelectedItem()));
+			if (!mapBridge.beginCreatePoint(option.getDatasetName(), continuous)) {
 				JOptionPane.showMessageDialog(this, "未能将设备图层设为当前可编辑图层，请先打开工程地图。", "提示", JOptionPane.WARNING_MESSAGE);
 				return;
 			}
-			JOptionPane.showMessageDialog(this, "已进入绘制设备点模式：" + option.getCaption() + "。请在地图上单击一次，完成后会自动退出绘制并锁定图层。", "绘制设备点", JOptionPane.INFORMATION_MESSAGE);
+			String message = continuous
+					? "已进入连续绘制设备点模式：" + option.getCaption() + "。完成后请在设备点菜单中点击“结束绘制”。"
+					: "已进入单点绘制设备点模式：" + option.getCaption() + "。请在地图上单击一次，完成后会自动退出绘制并锁定图层。";
+			JOptionPane.showMessageDialog(this, message, "绘制设备点", JOptionPane.INFORMATION_MESSAGE);
 			dispose();
 		} catch (Exception ex) {
 			JOptionPane.showMessageDialog(this, ex.getMessage(), "绘制设备点失败", JOptionPane.WARNING_MESSAGE);

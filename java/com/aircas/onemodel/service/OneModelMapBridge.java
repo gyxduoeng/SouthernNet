@@ -107,6 +107,10 @@ public class OneModelMapBridge {
 	}
 
 	public boolean beginCreatePoint(String datasetName) {
+		return beginCreatePoint(datasetName, false);
+	}
+
+	public boolean beginCreatePoint(String datasetName, boolean continuous) {
 		IFormMap formMap = resolveActiveFormMap();
 		if (formMap == null || formMap.getMapControl() == null || datasetName == null || datasetName.trim().isEmpty()) {
 			return false;
@@ -116,7 +120,7 @@ public class OneModelMapBridge {
 			return false;
 		}
 		Layer editableLayer = (Layer) layer;
-		autoAttributeService.beginOneShotDraw(formMap);
+		autoAttributeService.beginDraw(formMap, continuous);
 		editableLayer.setVisible(true);
 		editableLayer.setSelectable(true);
 		editableLayer.setEditable(true);
@@ -125,6 +129,19 @@ public class OneModelMapBridge {
 		return true;
 	}
 
+	public boolean endDrawEquipmentPoint() {
+		IFormMap formMap = resolveActiveFormMap();
+		if (formMap == null || formMap.getMapControl() == null) {
+			return false;
+		}
+		Layer layer = null;
+		Object activeLayer = invokeQuietly(formMap.getMapControl(), "getActiveEditableLayer");
+		if (activeLayer instanceof Layer) {
+			layer = (Layer) activeLayer;
+		}
+		autoAttributeService.endDraw(formMap.getMapControl(), layer);
+		return true;
+	}
 	public boolean beginCreateArea(String areaName, String areaType) {
 		IFormMap formMap = resolveActiveFormMap();
 		if (formMap == null || formMap.getMapControl() == null) {

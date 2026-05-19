@@ -28,7 +28,7 @@ import java.util.regex.Pattern;
 public class OneModelEquipmentAutoAttributeService {
 
 	private static final Map<MapControl, GeometryAddedListener> LISTENERS = Collections.synchronizedMap(new WeakHashMap<>());
-	private static final Map<MapControl, Boolean> DRAW_SESSIONS = Collections.synchronizedMap(new WeakHashMap<>());
+	private static final Map<MapControl, DrawSession> DRAW_SESSIONS = Collections.synchronizedMap(new WeakHashMap<>());
 	private static final Pattern NUMBER_SUFFIX = Pattern.compile(".*-(\\d+)$");
 
 	private final OneModelSchemaService schemaService = new OneModelSchemaService();
@@ -51,13 +51,13 @@ public class OneModelEquipmentAutoAttributeService {
 		}
 	}
 
-	public void beginOneShotDraw(IFormMap formMap) {
+	public void beginDraw(IFormMap formMap, boolean continuous) {
 		if (formMap == null || formMap.getMapControl() == null) {
 			return;
 		}
 		install(formMap);
 		synchronized (DRAW_SESSIONS) {
-			DRAW_SESSIONS.put(formMap.getMapControl(), Boolean.TRUE);
+			DRAW_SESSIONS.put(formMap.getMapControl(), new DrawSession(continuous));
 		}
 	}
 	private void geometryAdded(GeometryEvent event) {
@@ -135,15 +135,19 @@ public class OneModelEquipmentAutoAttributeService {
 	}
 
 	private void finishOneShotDraw(MapControl mapControl, Layer layer) {
+		DrawSession session = resolveDrawSession(mapControl);
+		if (session == null || session.continuous) {
+			return;
+		}
+		endDraw(mapControl, layer);
+	}
+
+	public void endDraw(MapControl mapControl, Layer layer) {
 		if (mapControl == null) {
 			return;
 		}
-		boolean shouldFinish;
 		synchronized (DRAW_SESSIONS) {
-			shouldFinish = DRAW_SESSIONS.remove(mapControl) != null;
-		}
-		if (!shouldFinish) {
-			return;
+			DRAW_SESSIONS.remove(mapControl);
 		}
 		try {
 			mapControl.setAction(Action.SELECT);
@@ -157,6 +161,15 @@ public class OneModelEquipmentAutoAttributeService {
 		}
 		invokeQuietly(mapControl, "refresh");
 		invokeQuietly(mapControl, "repaint");
+	}
+
+	private DrawSession resolveDrawSession(MapControl mapControl) {
+		if (mapControl == null) {
+			return null;
+		}
+		synchronized (DRAW_SESSIONS) {
+			return DRAW_SESSIONS.get(mapControl);
+		}
 	}
 	private boolean seekTargetRecord(Recordset recordset, int recordId) {
 		if (recordset == null || recordset.isEmpty()) {
@@ -311,6 +324,13 @@ public class OneModelEquipmentAutoAttributeService {
 		}
 	}
 
+	private static final class DrawSession {
+		private final boolean continuous;
+
+		private DrawSession(boolean continuous) {
+			this.continuous = continuous;
+		}
+	}
 	private static final class Point {
 		private final double x;
 		private final double y;
