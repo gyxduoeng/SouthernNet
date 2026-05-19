@@ -35,8 +35,12 @@ public class OneModelTopologyChecker {
 		Set<String> connected = new HashSet<>();
 		int issueCount = 0;
 		for (OneModelConnectionRecord connection : connections) {
-			String fromId = connection.getFromEquipmentId();
-			String toId = connection.getToEquipmentId();
+			String fromId = nullToEmpty(connection.getFromEquipmentId());
+			String toId = nullToEmpty(connection.getToEquipmentId());
+			if (fromId.isEmpty() || toId.isEmpty()) {
+				builder.append("[提示] 连接尚未绑定两端设备：").append(connection.getConnectionId()).append("\n");
+				continue;
+			}
 			if (fromId.equals(toId)) {
 				builder.append("[问题] 存在自连接：").append(connection.getConnectionId()).append("\n");
 				issueCount++;
@@ -68,5 +72,8 @@ public class OneModelTopologyChecker {
 	private String normalizePair(String fromId, String toId, String type) {
 		return fromId.compareTo(toId) <= 0 ? fromId + "|" + toId + "|" + type : toId + "|" + fromId + "|" + type;
 	}
-}
 
+	private String nullToEmpty(String value) {
+		return value == null ? "" : value.trim();
+	}
+}

@@ -27,6 +27,7 @@ public class OneModelMapBridge {
 	private final OneModelCoordinateSystemSupport coordinateSystemSupport = new OneModelCoordinateSystemSupport();
 	private final OneModelEquipmentAutoAttributeService autoAttributeService = new OneModelEquipmentAutoAttributeService();
 	private final OneModelAreaDrawService areaDrawService = new OneModelAreaDrawService();
+	private final OneModelConnectionDrawService connectionDrawService = new OneModelConnectionDrawService();
 
 	public IFormMap openOrCreateWorkingMap(Datasource datasource) {
 		return openOrCreateWorkingMap(datasource, "工程地图");
@@ -64,6 +65,7 @@ public class OneModelMapBridge {
 		}
 		autoAttributeService.install(formMap);
 		areaDrawService.install(formMap);
+		connectionDrawService.install(formMap);
 		java.util.List<DatasetVector> datasets = new java.util.ArrayList<>();
 		DatasetVector areaDataset = (DatasetVector) datasource.getDatasets().get(OneModelSchemaService.AREA_DATASET);
 		if (areaDataset != null) {
@@ -142,6 +144,29 @@ public class OneModelMapBridge {
 		autoAttributeService.endDraw(formMap.getMapControl(), layer);
 		return true;
 	}
+
+	public boolean beginCreateConnectionLine(String connectionType, String status) {
+		IFormMap formMap = resolveActiveFormMap();
+		if (formMap == null || formMap.getMapControl() == null) {
+			return false;
+		}
+		Datasource datasource = workspaceBridge.getOrCreateSharedDatasource();
+		schemaService.ensureConnectionDataset(datasource);
+		ensureManagedLayersPresent(formMap, datasource);
+		Object layer = findLayer(formMap, OneModelSchemaService.CONNECTION_DATASET);
+		if (!(layer instanceof Layer)) {
+			return false;
+		}
+		Layer editableLayer = (Layer) layer;
+		editableLayer.setVisible(true);
+		editableLayer.setSelectable(true);
+		editableLayer.setEditable(true);
+		formMap.getMapControl().setActiveEditableLayer(editableLayer);
+		connectionDrawService.beginDraw(formMap, connectionType, status);
+		formMap.getMapControl().setAction(Action.CREATELINE);
+		return true;
+	}
+
 	public boolean beginCreateArea(String areaName, String areaType) {
 		IFormMap formMap = resolveActiveFormMap();
 		if (formMap == null || formMap.getMapControl() == null) {
