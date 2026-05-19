@@ -21,14 +21,14 @@ public class DialogOmAreaEditor extends SmDialog {
 	private final OneModelMapRepository repository = new OneModelMapRepository();
 	private final JTextField nameField = new JTextField();
 	private final JTextField typeField = new JTextField("功能分区");
-	private final JTextField minXField = new JTextField("0");
-	private final JTextField minYField = new JTextField("0");
-	private final JTextField maxXField = new JTextField("100");
-	private final JTextField maxYField = new JTextField("60");
+	private final JTextField minXField = new JTextField("113.0");
+	private final JTextField minYField = new JTextField("22.0");
+	private final JTextField maxXField = new JTextField("114.0");
+	private final JTextField maxYField = new JTextField("23.0");
 
 	public DialogOmAreaEditor() {
 		setTitle("新增区域面");
-		setSize(new Dimension(520, 300));
+		setSize(new Dimension(620, 340));
 		setLayout(new GridBagLayout());
 		buildLayout();
 	}
@@ -39,14 +39,15 @@ public class DialogOmAreaEditor extends SmDialog {
 		panel.add(nameField, new GridBagConstraintsHelper(1, 0).setInsets(0, 0, 6, 0).setWeight(1, 0).setFill(GridBagConstraints.HORIZONTAL));
 		panel.add(new JLabel("区域类型"), new GridBagConstraintsHelper(0, 1).setInsets(0, 0, 6, 6).setAnchor(GridBagConstraints.WEST));
 		panel.add(typeField, new GridBagConstraintsHelper(1, 1).setInsets(0, 0, 6, 0).setWeight(1, 0).setFill(GridBagConstraints.HORIZONTAL));
-		panel.add(new JLabel("Min X"), new GridBagConstraintsHelper(0, 2).setInsets(0, 0, 6, 6).setAnchor(GridBagConstraints.WEST));
+		panel.add(new JLabel("最小经度 / Min X"), new GridBagConstraintsHelper(0, 2).setInsets(0, 0, 6, 6).setAnchor(GridBagConstraints.WEST));
 		panel.add(minXField, new GridBagConstraintsHelper(1, 2).setInsets(0, 0, 6, 0).setWeight(1, 0).setFill(GridBagConstraints.HORIZONTAL));
-		panel.add(new JLabel("Min Y"), new GridBagConstraintsHelper(0, 3).setInsets(0, 0, 6, 6).setAnchor(GridBagConstraints.WEST));
+		panel.add(new JLabel("最小纬度 / Min Y"), new GridBagConstraintsHelper(0, 3).setInsets(0, 0, 6, 6).setAnchor(GridBagConstraints.WEST));
 		panel.add(minYField, new GridBagConstraintsHelper(1, 3).setInsets(0, 0, 6, 0).setWeight(1, 0).setFill(GridBagConstraints.HORIZONTAL));
-		panel.add(new JLabel("Max X"), new GridBagConstraintsHelper(0, 4).setInsets(0, 0, 6, 6).setAnchor(GridBagConstraints.WEST));
+		panel.add(new JLabel("最大经度 / Max X"), new GridBagConstraintsHelper(0, 4).setInsets(0, 0, 6, 6).setAnchor(GridBagConstraints.WEST));
 		panel.add(maxXField, new GridBagConstraintsHelper(1, 4).setInsets(0, 0, 6, 0).setWeight(1, 0).setFill(GridBagConstraints.HORIZONTAL));
-		panel.add(new JLabel("Max Y"), new GridBagConstraintsHelper(0, 5).setInsets(0, 0, 6, 6).setAnchor(GridBagConstraints.WEST));
+		panel.add(new JLabel("最大纬度 / Max Y"), new GridBagConstraintsHelper(0, 5).setInsets(0, 0, 6, 6).setAnchor(GridBagConstraints.WEST));
 		panel.add(maxYField, new GridBagConstraintsHelper(1, 5).setInsets(0, 0, 6, 0).setWeight(1, 0).setFill(GridBagConstraints.HORIZONTAL));
+        panel.add(new JLabel("当前工程地图使用地理坐标时，请输入经纬度范围：经度 -180~180，纬度 -90~90。"), new GridBagConstraintsHelper(1, 6).setInsets(0, 0, 6, 0).setAnchor(GridBagConstraints.WEST));
 
 		SmButton okButton = new SmButton("写入地图");
 		okButton.addActionListener(e -> saveAndClose());
@@ -73,4 +74,5 @@ public class DialogOmAreaEditor extends SmDialog {
 		}
 	}
 }
+
 

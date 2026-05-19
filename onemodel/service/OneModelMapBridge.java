@@ -25,6 +25,7 @@ public class OneModelMapBridge {
 	private final OneModelLayerCatalogService layerCatalogService = new OneModelLayerCatalogService();
 	private final OneModelCoordinateSystemSupport coordinateSystemSupport = new OneModelCoordinateSystemSupport();
 	private final OneModelEquipmentAutoAttributeService autoAttributeService = new OneModelEquipmentAutoAttributeService();
+	private final OneModelAreaDrawService areaDrawService = new OneModelAreaDrawService();
 
 	public IFormMap openOrCreateWorkingMap(Datasource datasource) {
 		return openOrCreateWorkingMap(datasource, "工程地图");
@@ -61,6 +62,7 @@ public class OneModelMapBridge {
 			return;
 		}
 		autoAttributeService.install(formMap);
+		areaDrawService.install(formMap);
 		java.util.List<DatasetVector> datasets = new java.util.ArrayList<>();
 		DatasetVector areaDataset = (DatasetVector) datasource.getDatasets().get(OneModelSchemaService.AREA_DATASET);
 		if (areaDataset != null) {
@@ -113,6 +115,25 @@ public class OneModelMapBridge {
 		editableLayer.setEditable(true);
 		formMap.getMapControl().setActiveEditableLayer(editableLayer);
 		formMap.getMapControl().setAction(Action.CREATEPOINT);
+		return true;
+	}
+
+	public boolean beginCreateArea(String areaName, String areaType) {
+		IFormMap formMap = resolveActiveFormMap();
+		if (formMap == null || formMap.getMapControl() == null) {
+			return false;
+		}
+		Object layer = findLayer(formMap, OneModelSchemaService.AREA_DATASET);
+		if (!(layer instanceof Layer)) {
+			return false;
+		}
+		Layer editableLayer = (Layer) layer;
+		editableLayer.setVisible(true);
+		editableLayer.setSelectable(true);
+		editableLayer.setEditable(true);
+		formMap.getMapControl().setActiveEditableLayer(editableLayer);
+		areaDrawService.beginDraw(formMap, areaName, areaType);
+		formMap.getMapControl().setAction(Action.CREATERECTANGLE);
 		return true;
 	}
 
@@ -295,7 +316,7 @@ public class OneModelMapBridge {
 		}
 		invokeQuietly(layer, "setVisible", Boolean.TRUE);
 		invokeQuietly(layer, "setSelectable", Boolean.TRUE);
-		invokeQuietly(layer, "setEditable", Boolean.TRUE);
+		invokeQuietly(layer, "setEditable", Boolean.FALSE);
 		Object style = invokeQuietly(layer, "getStyle");
 		if (style != null) {
 			invokeQuietly(style, "setMarkerSize", Integer.valueOf(4));
@@ -355,6 +376,13 @@ public class OneModelMapBridge {
 		}
 	}
 }
+
+
+
+
+
+
+
 
 
 
