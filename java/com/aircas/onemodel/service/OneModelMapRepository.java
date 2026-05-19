@@ -15,6 +15,7 @@ import com.supermap.data.Geometry;
 import com.supermap.data.Point2D;
 import com.supermap.data.Point2Ds;
 import com.supermap.data.Recordset;
+import com.supermap.data.Rectangle2D;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -126,28 +127,40 @@ public class OneModelMapRepository {
 
 	public OneModelConnectionRecord addConnection(String fromEquipmentId, String toEquipmentId, String connectionType, String status) {
 		initializeRuntimeSchema();
-		String leftEquipmentId = fromEquipmentId;
-		String rightEquipmentId = toEquipmentId;
-		if (leftEquipmentId != null && rightEquipmentId != null && leftEquipmentId.compareTo(rightEquipmentId) > 0) {
-			leftEquipmentId = toEquipmentId;
-			rightEquipmentId = fromEquipmentId;
+		String type = connectionTypeOrDefault(connectionType);
+		String state = isBlank(status) ? "现状" : status.trim();
+		if (isBlank(fromEquipmentId) || isBlank(toEquipmentId)) {
+			throw new IllegalArgumentException("请选择关联关系两端设备。");
+		}
+		if (fromEquipmentId.trim().equals(toEquipmentId.trim())) {
+			throw new IllegalArgumentException("关联关系的两端设备不能相同。");
+		}
+		boolean directed = isDirectedConnectionType(type);
+		String leftEquipmentId = fromEquipmentId.trim();
+		String rightEquipmentId = toEquipmentId.trim();
+		if (!directed && leftEquipmentId.compareTo(rightEquipmentId) > 0) {
+			leftEquipmentId = toEquipmentId.trim();
+			rightEquipmentId = fromEquipmentId.trim();
 		}
 		OneModelEquipmentRecord from = getEquipmentById(leftEquipmentId);
 		OneModelEquipmentRecord to = getEquipmentById(rightEquipmentId);
 		if (from == null || to == null) {
 			throw new IllegalArgumentException("关联关系两端设备不存在。");
 		}
+		String targetPair = normalizePair(from.getEquipmentId(), to.getEquipmentId(), type, directed);
 		for (OneModelConnectionRecord existing : listConnections()) {
-			if (normalizePair(existing.getFromEquipmentId(), existing.getToEquipmentId(), existing.getConnectionType())
-					.equals(normalizePair(from.getEquipmentId(), to.getEquipmentId(), connectionType))) {
+			String existingPair = normalizePair(existing.getFromEquipmentId(), existing.getToEquipmentId(), existing.getConnectionType(),
+					isDirectedConnectionType(existing.getConnectionType()));
+			if (existingPair.equals(targetPair)) {
 				throw new IllegalArgumentException("相同类型的关联关系已存在，无需重复创建。");
 			}
 		}
 		String connectionId = nextId("CN");
 		String versionId = sessionStore.getParameters().getVersionId();
 		OneModelConnectionRecord record = new OneModelConnectionRecord(connectionId, from.getEquipmentId(), to.getEquipmentId(),
-				connectionType, status, versionId, "关联关系线");
-		DatasetVector dataset = schemaService.ensureConnectionDataset(workspaceBridge.getOrCreateSharedDatasource());
+				type, state, versionId, "关联关系线");
+		Datasource datasource = workspaceBridge.getOrCreateSharedDatasource();
+		DatasetVector dataset = schemaService.ensureConnectionDataset(datasource);
 		Recordset recordset = dataset.getRecordset(false, CursorType.DYNAMIC);
 		try {
 			recordset.addNew(buildLineGeometry(from, to), buildConnectionAttributes(record));
@@ -155,10 +168,11 @@ public class OneModelMapRepository {
 		} finally {
 			release(recordset);
 		}
+		mapBridge.ensureManagedLayersPresent(datasource);
+		mapBridge.refreshActiveMap();
 		workspaceBridge.saveWorkspaceQuietly();
 		return record;
 	}
-
 	public void updateGraphicBinding(String equipmentId, String graphicType) {
 		for (DatasetVector dataset : schemaService.listManagedEquipmentDatasets(workspaceBridge.getOrCreateSharedDatasource())) {
 			Recordset recordset = dataset.getRecordset(false, CursorType.DYNAMIC);
@@ -229,6 +243,13 @@ public class OneModelMapRepository {
 			try {
 				recordset.moveFirst();
 				while (!recordset.isEOF()) {
+					Point point = readPoint(recordset.getGeometry());
+					double x = coordinateValue(recordset, "PX", point == null ? null : point.x);
+					double y = coordinateValue(recordset, "PY", point == null ? null : point.y);
+					if (point != null && x == 0D && y == 0D && (point.x != 0D || point.y != 0D)) {
+						x = point.x;
+						y = point.y;
+					}
 					result.add(new OneModelEquipmentRecord(
 							recordset.getString("EQUIP_ID"),
 							recordset.getString("EQUIP_CODE"),
@@ -243,8 +264,8 @@ public class OneModelMapRepository {
 							recordset.getString("MODEL_NAME"),
 							recordset.getString("MODEL_PATH"),
 							recordset.getString("MODEL_ATTRS"),
-							recordset.getDouble("PX"),
-							recordset.getDouble("PY")));
+							x,
+							y));
 					recordset.moveNext();
 				}
 			} finally {
@@ -253,7 +274,6 @@ public class OneModelMapRepository {
 		}
 		return result;
 	}
-
 	public List<OneModelConnectionRecord> listConnections() {
 		initializeRuntimeSchema();
 		List<OneModelConnectionRecord> result = new ArrayList<>();
@@ -286,6 +306,34 @@ public class OneModelMapRepository {
 		return null;
 	}
 
+	private double coordinateValue(Recordset recordset, String fieldName, Double fallback) {
+		try {
+			Object value = recordset.getObject(fieldName);
+			if (value instanceof Number) {
+				return ((Number) value).doubleValue();
+			}
+			if (value != null && !String.valueOf(value).trim().isEmpty()) {
+				return Double.parseDouble(String.valueOf(value).trim());
+			}
+		} catch (Exception ignored) {
+		}
+		return fallback == null ? 0D : fallback.doubleValue();
+	}
+
+	private Point readPoint(Geometry geometry) {
+		if (geometry == null) {
+			return null;
+		}
+		try {
+			Rectangle2D bounds = geometry.getBounds();
+			if (bounds == null) {
+				return null;
+			}
+			return new Point((bounds.getLeft() + bounds.getRight()) / 2D, (bounds.getBottom() + bounds.getTop()) / 2D);
+		} catch (Exception ignored) {
+			return null;
+		}
+	}
 	private Map<String, Object> buildAreaAttributes(OneModelAreaRecord record) {
 		Map<String, Object> attributes = new HashMap<>();
 		attributes.put("AREA_ID", record.getAreaId());
@@ -349,17 +397,28 @@ public class OneModelMapRepository {
 		return new GeoLine(points);
 	}
 
-	private String normalizePair(String fromId, String toId, String type) {
+	private String normalizePair(String fromId, String toId, String type, boolean directed) {
 		String left = fromId == null ? "" : fromId;
 		String right = toId == null ? "" : toId;
 		String relationType = connectionTypeOrDefault(type);
+		if (directed) {
+			return left + "|" + right + "|" + relationType;
+		}
 		return left.compareTo(right) <= 0 ? left + "|" + right + "|" + relationType : right + "|" + left + "|" + relationType;
 	}
 
 	private String connectionTypeOrDefault(String type) {
-		return type == null ? "" : type.trim();
+		String value = type == null ? "" : type.trim();
+		return value.isEmpty() ? "电气连接" : value;
 	}
 
+	private boolean isDirectedConnectionType(String type) {
+		return "从属关系".equals(connectionTypeOrDefault(type));
+	}
+
+	private boolean isBlank(String value) {
+		return value == null || value.trim().isEmpty();
+	}
 	private boolean updateTextField(Recordset recordset, String id, String targetField, String value) {
 		recordset.moveFirst();
 		while (!recordset.isEOF()) {
@@ -390,6 +449,16 @@ public class OneModelMapRepository {
 
 	private String nextId(String prefix) {
 		return prefix + "-" + System.currentTimeMillis();
+	}
+
+	private static final class Point {
+		private final double x;
+		private final double y;
+
+		private Point(double x, double y) {
+			this.x = x;
+			this.y = y;
+		}
 	}
 }
 

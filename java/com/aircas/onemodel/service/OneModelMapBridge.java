@@ -13,6 +13,7 @@ import com.supermap.desktop.core.utilties.*;
 import com.supermap.mapping.Layer;
 import com.supermap.ui.Action;
 
+import java.awt.Color;
 import java.lang.reflect.Method;
 
 /**
@@ -82,11 +83,16 @@ public class OneModelMapBridge {
 		if (!missing.isEmpty()) {
 			MapViewUIUtilities.addDatasetsToMap(formMap.getMapControl().getMap(), 0, missing.toArray(new DatasetVector[0]));
 		}
-		for (DatasetVector dataset : missing) {
+		for (DatasetVector dataset : datasets) {
 			applyDefaultManagedLayerStyle(formMap, dataset);
 		}
 		applyManagedLayerCaptions(formMap);
+		refreshMapQuietly(formMap);
 		workspaceBridge.saveWorkspaceQuietly();
+	}
+
+	public void refreshActiveMap() {
+		refreshMapQuietly(resolveActiveFormMap());
 	}
 
 	public void activateEditableLayer(String datasetName) {
@@ -266,6 +272,16 @@ public class OneModelMapBridge {
 		}
 	}
 
+	private void refreshMapQuietly(IFormMap formMap) {
+		if (formMap == null || formMap.getMapControl() == null) {
+			return;
+		}
+		Object mapControl = formMap.getMapControl();
+		Object map = invokeQuietly(mapControl, "getMap");
+		invokeQuietly(map, "refresh");
+		invokeQuietly(mapControl, "refresh");
+		invokeQuietly(mapControl, "repaint");
+	}
 	private IFormMap resolveActiveFormMap() {
 		Object activeForm = Application.getActiveApplication().getActiveForm();
 		return activeForm instanceof IFormMap ? (IFormMap) activeForm : null;
@@ -307,7 +323,7 @@ public class OneModelMapBridge {
 	}
 
 	private void applyDefaultManagedLayerStyle(IFormMap formMap, DatasetVector dataset) {
-		if (formMap == null || dataset == null || !schemaService.isManagedEquipmentDataset(dataset.getName())) {
+		if (formMap == null || dataset == null) {
 			return;
 		}
 		Object layer = findLayer(formMap, dataset.getName());
@@ -318,12 +334,22 @@ public class OneModelMapBridge {
 		invokeQuietly(layer, "setSelectable", Boolean.TRUE);
 		invokeQuietly(layer, "setEditable", Boolean.FALSE);
 		Object style = invokeQuietly(layer, "getStyle");
-		if (style != null) {
+		if (style == null) {
+			return;
+		}
+		String datasetName = dataset.getName();
+		if (schemaService.isManagedEquipmentDataset(datasetName)) {
 			invokeQuietly(style, "setMarkerSize", Integer.valueOf(4));
 			invokeQuietly(style, "setLineWidth", Double.valueOf(0.3D));
+		} else if (OneModelSchemaService.CONNECTION_DATASET.equalsIgnoreCase(datasetName)) {
+			Color connectionColor = new Color(220, 65, 45);
+			invokeQuietly(style, "setLineWidth", Double.valueOf(1.2D));
+			invokeQuietly(style, "setLineColor", connectionColor);
+			invokeQuietly(style, "setForeColor", connectionColor);
+		} else if (OneModelSchemaService.AREA_DATASET.equalsIgnoreCase(datasetName)) {
+			invokeQuietly(style, "setLineWidth", Double.valueOf(0.5D));
 		}
 	}
-
 	private Object findLayer(IFormMap formMap, String datasetName) {
 		Object layers = invokeQuietly(formMap.getMapControl().getMap(), "getLayers");
 		Object countValue = invokeQuietly(layers, "getCount");
@@ -349,6 +375,8 @@ public class OneModelMapBridge {
 		for (int i = 0; i < args.length; i++) {
 			if (args[i] instanceof Integer) {
 				parameterTypes[i] = int.class;
+			} else if (args[i] instanceof Double) {
+				parameterTypes[i] = double.class;
 			} else if (args[i] instanceof Boolean) {
 				parameterTypes[i] = boolean.class;
 			} else {
