@@ -10,6 +10,8 @@ import com.supermap.desktop.core.Application;
 import com.supermap.desktop.core.Interface.IFormMap;
 import com.supermap.desktop.core.enums.WindowType;
 import com.supermap.desktop.core.utilties.*;
+import com.supermap.mapping.Layer;
+import com.supermap.ui.Action;
 
 import java.lang.reflect.Method;
 
@@ -22,6 +24,7 @@ public class OneModelMapBridge {
 	private final OneModelSchemaService schemaService = new OneModelSchemaService();
 	private final OneModelLayerCatalogService layerCatalogService = new OneModelLayerCatalogService();
 	private final OneModelCoordinateSystemSupport coordinateSystemSupport = new OneModelCoordinateSystemSupport();
+	private final OneModelEquipmentAutoAttributeService autoAttributeService = new OneModelEquipmentAutoAttributeService();
 
 	public IFormMap openOrCreateWorkingMap(Datasource datasource) {
 		return openOrCreateWorkingMap(datasource, "工程地图");
@@ -57,6 +60,7 @@ public class OneModelMapBridge {
 		if (formMap == null || datasource == null) {
 			return;
 		}
+		autoAttributeService.install(formMap);
 		java.util.List<DatasetVector> datasets = new java.util.ArrayList<>();
 		DatasetVector areaDataset = (DatasetVector) datasource.getDatasets().get(OneModelSchemaService.AREA_DATASET);
 		if (areaDataset != null) {
@@ -81,6 +85,35 @@ public class OneModelMapBridge {
 		}
 		applyManagedLayerCaptions(formMap);
 		workspaceBridge.saveWorkspaceQuietly();
+	}
+
+	public void activateEditableLayer(String datasetName) {
+		IFormMap formMap = resolveActiveFormMap();
+		if (formMap == null || formMap.getMapControl() == null || datasetName == null || datasetName.trim().isEmpty()) {
+			return;
+		}
+		Object layer = findLayer(formMap, datasetName.trim());
+		if (layer instanceof Layer) {
+			formMap.getMapControl().setActiveEditableLayer((Layer) layer);
+		}
+	}
+
+	public boolean beginCreatePoint(String datasetName) {
+		IFormMap formMap = resolveActiveFormMap();
+		if (formMap == null || formMap.getMapControl() == null || datasetName == null || datasetName.trim().isEmpty()) {
+			return false;
+		}
+		Object layer = findLayer(formMap, datasetName.trim());
+		if (!(layer instanceof Layer)) {
+			return false;
+		}
+		Layer editableLayer = (Layer) layer;
+		editableLayer.setVisible(true);
+		editableLayer.setSelectable(true);
+		editableLayer.setEditable(true);
+		formMap.getMapControl().setActiveEditableLayer(editableLayer);
+		formMap.getMapControl().setAction(Action.CREATEPOINT);
+		return true;
 	}
 
 	private void saveWorkspaceMapQuietly(Workspace workspace, IFormMap workingMap, String mapName) {
@@ -322,5 +355,10 @@ public class OneModelMapBridge {
 		}
 	}
 }
+
+
+
+
+
 
 

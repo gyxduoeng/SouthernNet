@@ -55,6 +55,7 @@ public class OneModelMapRepository {
 		layerCatalogService.registerLayerCaption(dataset.getName(), category);
 		layerCatalogService.registerLayerDefaultModel(dataset.getName(), defaultModel, category);
 		mapBridge.ensureManagedLayersPresent(datasource);
+		mapBridge.activateEditableLayer(dataset.getName());
 		workspaceBridge.saveWorkspaceQuietly();
 		return dataset.getName();
 	}
@@ -118,6 +119,7 @@ public class OneModelMapRepository {
 			release(recordset);
 		}
 		mapBridge.ensureManagedLayersPresent(datasource);
+		mapBridge.activateEditableLayer(dataset.getName());
 		workspaceBridge.saveWorkspaceQuietly();
 		return record;
 	}
@@ -390,4 +392,7 @@ public class OneModelMapRepository {
 		return prefix + "-" + System.currentTimeMillis();
 	}
 }
+
+
+
 
