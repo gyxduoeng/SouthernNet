@@ -8,6 +8,7 @@ import com.supermap.data.Geometry;
 import com.supermap.data.Recordset;
 import com.supermap.desktop.core.Interface.IFormMap;
 import com.supermap.mapping.Layer;
+import com.supermap.ui.Action;
 import com.supermap.ui.GeometryAddedListener;
 import com.supermap.ui.GeometryEvent;
 import com.supermap.ui.MapControl;
@@ -27,6 +28,7 @@ import java.util.regex.Pattern;
 public class OneModelEquipmentAutoAttributeService {
 
 	private static final Map<MapControl, GeometryAddedListener> LISTENERS = Collections.synchronizedMap(new WeakHashMap<>());
+	private static final Map<MapControl, Boolean> DRAW_SESSIONS = Collections.synchronizedMap(new WeakHashMap<>());
 	private static final Pattern NUMBER_SUFFIX = Pattern.compile(".*-(\\d+)$");
 
 	private final OneModelSchemaService schemaService = new OneModelSchemaService();
@@ -49,6 +51,15 @@ public class OneModelEquipmentAutoAttributeService {
 		}
 	}
 
+	public void beginOneShotDraw(IFormMap formMap) {
+		if (formMap == null || formMap.getMapControl() == null) {
+			return;
+		}
+		install(formMap);
+		synchronized (DRAW_SESSIONS) {
+			DRAW_SESSIONS.put(formMap.getMapControl(), Boolean.TRUE);
+		}
+	}
 	private void geometryAdded(GeometryEvent event) {
 		if (event == null || event.getLayer() == null) {
 			return;
@@ -63,10 +74,11 @@ public class OneModelEquipmentAutoAttributeService {
 			return;
 		}
 		int recordId = event.getID();
-		SwingUtilities.invokeLater(() -> autoFillEquipmentAttributes(vector, recordId));
+		MapControl mapControl = event.getSource() instanceof MapControl ? (MapControl) event.getSource() : null;
+		SwingUtilities.invokeLater(() -> autoFillEquipmentAttributes(vector, recordId, mapControl, layer));
 	}
 
-	private void autoFillEquipmentAttributes(DatasetVector dataset, int recordId) {
+	private void autoFillEquipmentAttributes(DatasetVector dataset, int recordId, MapControl mapControl, Layer layer) {
 		if (dataset == null || !schemaService.isManagedEquipmentDataset(dataset.getName())) {
 			return;
 		}
@@ -96,8 +108,8 @@ public class OneModelEquipmentAutoAttributeService {
 			changed |= setIfBlank(recordset, "VERSION_ID", sessionStore.getParameters().getVersionId());
 			changed |= setIfBlank(recordset, "GRAPHIC_TP", "设备点");
 			if (point != null) {
-				changed |= setIfBlank(recordset, "PX", point.x);
-				changed |= setIfBlank(recordset, "PY", point.y);
+				changed |= setCoordinate(recordset, "PX", point.x);
+				changed |= setCoordinate(recordset, "PY", point.y);
 			}
 			if (defaultModel != null) {
 				changed |= setIfBlank(recordset, "MODEL_ID", defaultModel.getModelId());
@@ -118,9 +130,34 @@ public class OneModelEquipmentAutoAttributeService {
 			}
 		} finally {
 			release(recordset);
+			finishOneShotDraw(mapControl, layer);
 		}
 	}
 
+	private void finishOneShotDraw(MapControl mapControl, Layer layer) {
+		if (mapControl == null) {
+			return;
+		}
+		boolean shouldFinish;
+		synchronized (DRAW_SESSIONS) {
+			shouldFinish = DRAW_SESSIONS.remove(mapControl) != null;
+		}
+		if (!shouldFinish) {
+			return;
+		}
+		try {
+			mapControl.setAction(Action.SELECT);
+		} catch (Exception ignored) {
+		}
+		if (layer != null) {
+			try {
+				layer.setEditable(false);
+			} catch (Exception ignored) {
+			}
+		}
+		invokeQuietly(mapControl, "refresh");
+		invokeQuietly(mapControl, "repaint");
+	}
 	private boolean seekTargetRecord(Recordset recordset, int recordId) {
 		if (recordset == null || recordset.isEmpty()) {
 			return false;
@@ -208,6 +245,17 @@ public class OneModelEquipmentAutoAttributeService {
 		return null;
 	}
 
+	private boolean setCoordinate(Recordset recordset, String fieldName, double value) {
+		try {
+			Object current = recordset.getObject(fieldName);
+			if (current instanceof Number && Math.abs(((Number) current).doubleValue() - value) < 0.000000001D) {
+				return false;
+			}
+		} catch (Exception ignored) {
+		}
+		recordset.setObject(fieldName, value);
+		return true;
+	}
 	private boolean setIfBlank(Recordset recordset, String fieldName, Object value) {
 		if (value == null || isBlank(String.valueOf(value))) {
 			return false;

@@ -67,7 +67,7 @@ public class DialogOmDrawEquipmentPoint extends SmDialog {
 				JOptionPane.showMessageDialog(this, "未能将设备图层设为当前可编辑图层，请先打开工程地图。", "提示", JOptionPane.WARNING_MESSAGE);
 				return;
 			}
-			JOptionPane.showMessageDialog(this, "已进入绘制设备点模式：" + option.getCaption(), "绘制设备点", JOptionPane.INFORMATION_MESSAGE);
+			JOptionPane.showMessageDialog(this, "已进入绘制设备点模式：" + option.getCaption() + "。请在地图上单击一次，完成后会自动退出绘制并锁定图层。", "绘制设备点", JOptionPane.INFORMATION_MESSAGE);
 			dispose();
 		} catch (Exception ex) {
 			JOptionPane.showMessageDialog(this, ex.getMessage(), "绘制设备点失败", JOptionPane.WARNING_MESSAGE);

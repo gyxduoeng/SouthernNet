@@ -116,6 +116,7 @@ public class OneModelMapBridge {
 			return false;
 		}
 		Layer editableLayer = (Layer) layer;
+		autoAttributeService.beginOneShotDraw(formMap);
 		editableLayer.setVisible(true);
 		editableLayer.setSelectable(true);
 		editableLayer.setEditable(true);
