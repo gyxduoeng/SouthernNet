@@ -167,6 +167,7 @@ public class OneModelProjectService {
 	}
 
 	public void closeCurrentProject() {
+		workspaceBridge.saveWorkspaceQuietly();
 		RegistryState registry = loadRegistry();
 		registry.currentProjectId = "";
 		saveRegistry(registry);
@@ -191,6 +192,14 @@ public class OneModelProjectService {
 
 	private void openProjectWorkspace(OneModelParameters parameters, boolean createIfMissing) {
 		Path workspaceFile = Paths.get(parameters.getWorkspaceFilePath()).toAbsolutePath().normalize();
+		if (workspaceBridge.isCurrentWorkspaceFile(workspaceFile.toString())) {
+			workspaceBridge.setWorkspaceCaptionQuietly(parameters.getProjectName());
+			Datasource datasource = workspaceBridge.getOrCreateSharedDatasource();
+			new OneModelMapRepository().initializeRuntimeSchema();
+			mapBridge.openOrCreateWorkingMap(datasource, parameters.getProjectMapName());
+			workspaceBridge.saveWorkspaceQuietly();
+			return;
+		}
 		if (!Files.exists(workspaceFile)) {
 			if (!createIfMissing || !tryCreateWorkspaceFile(workspaceFile, parameters.getProjectName())) {
 				throw new IllegalStateException("无法创建工程工作空间：" + workspaceFile);
