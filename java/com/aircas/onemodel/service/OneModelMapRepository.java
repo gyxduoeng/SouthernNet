@@ -125,6 +125,48 @@ public class OneModelMapRepository {
 		return record;
 	}
 
+	public OneModelEquipmentRecord addEquipmentToLayer(String datasetName, String areaId, String equipmentName, String equipmentType,
+			OneModelModelResource resource, String status, String graphicType, double x, double y) {
+		initializeRuntimeSchema();
+		String targetDatasetName = datasetName == null ? "" : datasetName.trim();
+		if (!schemaService.isManagedEquipmentDataset(targetDatasetName)) {
+			throw new IllegalArgumentException("目标设备图层不是 OneModel 管理图层：" + targetDatasetName);
+		}
+		String category = equipmentType == null ? "" : equipmentType.trim();
+		if (category.isEmpty()) {
+			throw new IllegalArgumentException("设备类型不能为空。");
+		}
+		Datasource datasource = workspaceBridge.getOrCreateSharedDatasource();
+		schemaService.listManagedEquipmentDatasets(datasource);
+		DatasetVector dataset = (DatasetVector) datasource.getDatasets().get(targetDatasetName);
+		if (dataset == null) {
+			throw new IllegalArgumentException("目标设备图层不存在：" + targetDatasetName);
+		}
+		String equipmentId = nextId("EQ");
+		String equipmentCode = equipmentName == null || equipmentName.trim().isEmpty() ? equipmentId : equipmentName.trim();
+		String versionId = sessionStore.getParameters().getVersionId();
+		String categoryKey = schemaService.normalizeEquipmentCategoryKey(category);
+		String state = isBlank(status) ? "现状" : status.trim();
+		String graphic = isBlank(graphicType) ? "设备点" : graphicType.trim();
+		OneModelEquipmentRecord record = new OneModelEquipmentRecord(equipmentId, equipmentCode, areaId, equipmentName, category,
+				categoryKey, state, versionId, graphic,
+				resource == null ? "" : resource.getModelId(),
+				resource == null ? "" : resource.getModelName(),
+				resource == null ? "" : resource.getModelPath(),
+				resource == null ? "" : resource.getModelAttributes(),
+				x, y);
+		Recordset recordset = dataset.getRecordset(false, CursorType.DYNAMIC);
+		try {
+			recordset.addNew(new GeoPoint(x, y), buildEquipmentAttributes(record));
+			recordset.update();
+		} finally {
+			release(recordset);
+		}
+		mapBridge.ensureManagedLayersPresent(datasource);
+		mapBridge.activateEditableLayer(dataset.getName());
+		workspaceBridge.saveWorkspaceQuietly();
+		return record;
+	}
 	public OneModelConnectionRecord addConnection(String fromEquipmentId, String toEquipmentId, String connectionType, String status) {
 		initializeRuntimeSchema();
 		String type = connectionTypeOrDefault(connectionType);
@@ -448,7 +490,7 @@ public class OneModelMapRepository {
 	}
 
 	private String nextId(String prefix) {
-		return prefix + "-" + System.currentTimeMillis();
+		return prefix + "-" + System.currentTimeMillis() + "-" + Long.toHexString(System.nanoTime());
 	}
 
 	private static final class Point {

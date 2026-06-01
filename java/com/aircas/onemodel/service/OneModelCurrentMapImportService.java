@@ -125,6 +125,107 @@ public class OneModelCurrentMapImportService {
 		}
 	}
 
+	public String importCurrentMapWithMappings(MappedImportRequest request) {
+		if (request == null) {
+			throw new IllegalArgumentException("导入请求不能为空。");
+		}
+		DatasetVector areaDataset = activeMapService.resolveDataset(request.getAreaDataset());
+		DatasetVector connectionDataset = activeMapService.resolveDataset(request.getConnectionDataset());
+		List<ResolvedEquipmentMapping> equipmentMappings = resolveEquipmentMappings(request.getEquipmentMappings());
+		if (areaDataset == null && connectionDataset == null && equipmentMappings.isEmpty()) {
+			throw new IllegalArgumentException("请至少选择一个区域、设备或连接线数据集。");
+		}
+
+		repository.initializeRuntimeSchema();
+		Datasource runtimeDatasource = workspaceBridge.getOrCreateSharedDatasource();
+		if (request.isClearBeforeImport()) {
+			clearRuntimeData(runtimeDatasource);
+		}
+
+		ImportContext context = new ImportContext();
+		Bounds equipmentBounds = null;
+		for (ResolvedEquipmentMapping mapping : equipmentMappings) {
+			equipmentBounds = mergeBounds(equipmentBounds, scanBounds(mapping.sourceDataset));
+		}
+		context.fallbackBounds = mergeBounds(equipmentBounds, scanBounds(connectionDataset));
+
+		if (areaDataset != null) {
+			importAreas(areaDataset, context);
+		}
+		for (ResolvedEquipmentMapping mapping : equipmentMappings) {
+			importEquipments(mapping.sourceDataset, mapping, context);
+		}
+		if (connectionDataset != null) {
+			importConnections(connectionDataset, context);
+		}
+
+		workspaceBridge.saveWorkspaceQuietly();
+		return buildMappedReport(request, context, areaDataset, equipmentMappings, connectionDataset);
+	}
+
+	private List<ResolvedEquipmentMapping> resolveEquipmentMappings(List<EquipmentLayerMapping> mappings) {
+		List<ResolvedEquipmentMapping> result = new ArrayList<>();
+		if (mappings == null) {
+			return result;
+		}
+		for (EquipmentLayerMapping mapping : mappings) {
+			if (mapping == null || mapping.isSkip()) {
+				continue;
+			}
+			DatasetVector sourceDataset = activeMapService.resolveDataset(mapping.getSourceDataset());
+			if (sourceDataset == null) {
+				continue;
+			}
+			String targetCategory = firstNonBlank(mapping.getTargetCategory(), deriveCategoryName(sourceDataset.getName()), "导入设备");
+			String targetDatasetName;
+			if (EquipmentLayerMapping.TargetMode.NEW_LAYER.equals(mapping.getTargetMode())) {
+				targetDatasetName = repository.createEquipmentLayer(targetCategory);
+			} else {
+				targetDatasetName = mapping.getTargetDatasetName();
+				if (isBlank(targetDatasetName)) {
+					throw new IllegalArgumentException("请选择目标设备图层：" + sourceDataset.getName());
+				}
+			}
+			result.add(new ResolvedEquipmentMapping(sourceDataset, targetDatasetName, targetCategory));
+		}
+		return result;
+	}
+
+	private void importEquipments(DatasetVector dataset, ResolvedEquipmentMapping mapping, ImportContext context) {
+		Recordset recordset = dataset.getRecordset(false, CursorType.STATIC);
+		try {
+			recordset.moveFirst();
+			int index = 1;
+			while (!recordset.isEOF()) {
+				Point point = readPoint(recordset);
+				if (point == null) {
+					context.notes.add("设备记录缺少坐标，已跳过：" + dataset.getName() + "#" + index);
+					context.skippedEquipments++;
+					recordset.moveNext();
+					index++;
+					continue;
+				}
+				String sourceKey = resolveSourceKey(recordset, index, "EQUIP_ID", "ID", "SMID", "osm_id");
+				String areaId = resolveAreaId(recordset, point, context);
+				String name = firstNonBlank(stringValue(recordset, "EQUIP_NAME"), stringValue(recordset, "NAME"),
+						stringValue(recordset, "name"), stringValue(recordset, "DEVICE_NAME"), stringValue(recordset, "CAPTION"),
+						dataset.getName() + "-" + index);
+				String status = firstNonBlank(stringValue(recordset, "STATUS"), stringValue(recordset, "STATE"),
+						stringValue(recordset, "PLAN_STATUS"), "现状");
+				OneModelEquipmentRecord equipment = repository.addEquipmentToLayer(mapping.targetDatasetName, areaId, name,
+						mapping.targetCategory, null, status, "当前地图映射导入/" + dataset.getName(), point.x, point.y);
+				context.importedEquipments++;
+				context.equipmentBySourceKey.put(normalizeKey(sourceKey), equipment.getEquipmentId());
+				context.equipmentBySourceKey.put(normalizeKey(dataset.getName() + ":" + sourceKey), equipment.getEquipmentId());
+				context.equipmentBySourceKey.put(normalizeKey(name), equipment.getEquipmentId());
+				context.equipmentRecords.put(equipment.getEquipmentId(), equipment);
+				recordset.moveNext();
+				index++;
+			}
+		} finally {
+			release(recordset);
+		}
+	}
 	private void importEquipments(DatasetVector dataset, ImportContext context) {
 		Recordset recordset = dataset.getRecordset(false, CursorType.STATIC);
 		try {
@@ -556,6 +657,49 @@ public class OneModelCurrentMapImportService {
 		return dataset == null ? "未选择" : dataset.getDatasource().getAlias() + " / " + dataset.getName();
 	}
 
+	private String buildMappedReport(MappedImportRequest request, ImportContext context,
+			DatasetVector areaDataset, List<ResolvedEquipmentMapping> equipmentMappings, DatasetVector connectionDataset) {
+		String projectMapName = projectService.getCurrentProject() == null ? "未选择" : projectService.getCurrentProject().getProjectMapName();
+		StringBuilder builder = new StringBuilder();
+		builder.append("映射导入完成\n\n");
+		builder.append("工程地图：").append(projectMapName).append("\n");
+		builder.append("导入策略：").append(request.isClearBeforeImport() ? "先清空 OneModel 运行数据后全量同步" : "在现有 OneModel 运行数据上追加同步").append("\n");
+		builder.append("区域数据集：").append(datasetLabel(areaDataset)).append("\n");
+		builder.append("连接数据集：").append(datasetLabel(connectionDataset)).append("\n\n");
+		builder.append("设备图层映射：\n");
+		if (equipmentMappings.isEmpty()) {
+			builder.append("- 未导入设备点\n");
+		} else {
+			for (ResolvedEquipmentMapping mapping : equipmentMappings) {
+				builder.append("- ").append(datasetLabel(mapping.sourceDataset))
+						.append(" -> ").append(mapping.targetCategory)
+						.append(" [").append(mapping.targetDatasetName).append("]\n");
+			}
+		}
+		builder.append("\n区域导入：").append(context.importedAreas).append("，跳过：").append(context.skippedAreas).append("\n");
+		builder.append("设备导入：").append(context.importedEquipments).append("，跳过：").append(context.skippedEquipments).append("\n");
+		builder.append("连接导入：").append(context.importedConnections).append("，跳过：").append(context.skippedConnections).append("\n");
+		builder.append("\n导入目标：当前工程自己的 OneModel 数据源。\n");
+		builder.append("下一步：可继续在目标设备图层上绘制设备点，或执行拓扑校正/设备-模型绑定。\n");
+		if (!context.notes.isEmpty()) {
+			builder.append("\n同步备注：\n");
+			for (String note : context.notes) {
+				builder.append("- ").append(note).append("\n");
+			}
+		}
+		return builder.toString();
+	}
+
+	private String deriveCategoryName(String datasetName) {
+		String value = datasetName == null ? "" : datasetName.trim();
+		if (value.isEmpty()) {
+			return "导入设备";
+		}
+		if (value.startsWith("OM_EQUIP_") && value.endsWith("_P") && value.length() > "OM_EQUIP__P".length()) {
+			value = value.substring("OM_EQUIP_".length(), value.length() - 2);
+		}
+		return value.replace('_', ' ').trim();
+	}
 	public static final class ImportRequest {
 
 		private final OneModelActiveMapService.DatasetRef areaDataset;
@@ -590,6 +734,94 @@ public class OneModelCurrentMapImportService {
 		}
 	}
 
+	public static final class MappedImportRequest {
+
+		private final OneModelActiveMapService.DatasetRef areaDataset;
+		private final List<EquipmentLayerMapping> equipmentMappings;
+		private final OneModelActiveMapService.DatasetRef connectionDataset;
+		private final boolean clearBeforeImport;
+
+		public MappedImportRequest(OneModelActiveMapService.DatasetRef areaDataset,
+				List<EquipmentLayerMapping> equipmentMappings,
+				OneModelActiveMapService.DatasetRef connectionDataset,
+				boolean clearBeforeImport) {
+			this.areaDataset = areaDataset;
+			this.equipmentMappings = equipmentMappings == null ? new ArrayList<>() : new ArrayList<>(equipmentMappings);
+			this.connectionDataset = connectionDataset;
+			this.clearBeforeImport = clearBeforeImport;
+		}
+
+		public OneModelActiveMapService.DatasetRef getAreaDataset() {
+			return areaDataset;
+		}
+
+		public List<EquipmentLayerMapping> getEquipmentMappings() {
+			return equipmentMappings;
+		}
+
+		public OneModelActiveMapService.DatasetRef getConnectionDataset() {
+			return connectionDataset;
+		}
+
+		public boolean isClearBeforeImport() {
+			return clearBeforeImport;
+		}
+	}
+
+	public static final class EquipmentLayerMapping {
+
+		public enum TargetMode {
+			SKIP,
+			EXISTING_LAYER,
+			NEW_LAYER
+		}
+
+		private final OneModelActiveMapService.DatasetRef sourceDataset;
+		private final TargetMode targetMode;
+		private final String targetDatasetName;
+		private final String targetCategory;
+
+		public EquipmentLayerMapping(OneModelActiveMapService.DatasetRef sourceDataset, TargetMode targetMode,
+				String targetDatasetName, String targetCategory) {
+			this.sourceDataset = sourceDataset;
+			this.targetMode = targetMode == null ? TargetMode.SKIP : targetMode;
+			this.targetDatasetName = targetDatasetName;
+			this.targetCategory = targetCategory;
+		}
+
+		public boolean isSkip() {
+			return TargetMode.SKIP.equals(targetMode) || sourceDataset == null || sourceDataset.isNone();
+		}
+
+		public OneModelActiveMapService.DatasetRef getSourceDataset() {
+			return sourceDataset;
+		}
+
+		public TargetMode getTargetMode() {
+			return targetMode;
+		}
+
+		public String getTargetDatasetName() {
+			return targetDatasetName;
+		}
+
+		public String getTargetCategory() {
+			return targetCategory;
+		}
+	}
+
+	private static final class ResolvedEquipmentMapping {
+
+		private final DatasetVector sourceDataset;
+		private final String targetDatasetName;
+		private final String targetCategory;
+
+		private ResolvedEquipmentMapping(DatasetVector sourceDataset, String targetDatasetName, String targetCategory) {
+			this.sourceDataset = sourceDataset;
+			this.targetDatasetName = targetDatasetName;
+			this.targetCategory = targetCategory;
+		}
+	}
 	private static final class ImportContext {
 
 		private final Map<String, String> areaBySourceKey = new HashMap<>();

@@ -34,7 +34,7 @@ public class OneModelActiveMapService {
 	private final OneModelProjectService projectService = new OneModelProjectService();
 
 	public SelectionSnapshot loadSelectionSnapshot() {
-		List<DatasetRef> projectMapDatasets = listProjectMapVectorDatasets();
+		List<DatasetRef> projectMapDatasets = listCandidateVectorDatasets();
 
 		List<DatasetRef> areaOptions = buildOptions(DatasetType.REGION, projectMapDatasets, NONE_REGION);
 		List<DatasetRef> equipmentOptions = buildOptions(DatasetType.POINT, projectMapDatasets, NONE_POINT);
@@ -111,6 +111,36 @@ public class OneModelActiveMapService {
 		return workspaceBridge.isManagedRuntimeDataset(option.getDatasourceAlias(), option.getDatasetName());
 	}
 
+	private List<DatasetRef> listCandidateVectorDatasets() {
+		List<DatasetRef> result = new ArrayList<>();
+		try {
+			result.addAll(listProjectMapVectorDatasets());
+		} catch (Exception ignored) {
+			// 工程地图未打开时仍允许从已加载的数据源中选择外部电网图层。
+		}
+		result.addAll(listWorkspaceVectorDatasets());
+		return deduplicate(result);
+	}
+
+	private List<DatasetRef> listWorkspaceVectorDatasets() {
+		Workspace workspace = workspaceBridge.getActiveWorkspace();
+		List<DatasetRef> result = new ArrayList<>();
+		for (int i = 0; i < workspace.getDatasources().getCount(); i++) {
+			Datasource datasource = workspace.getDatasources().get(i);
+			if (datasource == null) {
+				continue;
+			}
+			String alias = datasource.getAlias();
+			for (int j = 0; j < datasource.getDatasets().getCount(); j++) {
+				Dataset dataset = datasource.getDatasets().get(j);
+				DatasetRef ref = dataset instanceof DatasetVector ? toDatasetRef(dataset, alias, "工作空间") : null;
+				if (ref != null && !isRuntimeDataset(ref)) {
+					result.add(ref);
+				}
+			}
+		}
+		return result;
+	}
 	private List<DatasetRef> listProjectMapVectorDatasets() {
 		OneModelParameters project = projectService.getCurrentProject();
 		if (project == null) {
@@ -170,6 +200,10 @@ public class OneModelActiveMapService {
 	}
 
 	private DatasetRef toDatasetRef(Object datasetObject, String datasourceAlias) {
+		return toDatasetRef(datasetObject, datasourceAlias, "工程地图");
+	}
+
+	private DatasetRef toDatasetRef(Object datasetObject, String datasourceAlias, String source) {
 		if (!(datasetObject instanceof DatasetVector)) {
 			return null;
 		}
@@ -182,7 +216,8 @@ public class OneModelActiveMapService {
 		if (!(DatasetType.REGION.equals(type) || DatasetType.POINT.equals(type) || DatasetType.LINE.equals(type))) {
 			return null;
 		}
-		return new DatasetRef("工程地图", datasourceAlias, dataset.getName(), type, null);
+		String actualSource = source == null || source.trim().isEmpty() ? "工作空间" : source.trim();
+		return new DatasetRef(actualSource, datasourceAlias, dataset.getName(), type, null);
 	}
 
 	private List<DatasetRef> deduplicate(List<DatasetRef> refs) {
